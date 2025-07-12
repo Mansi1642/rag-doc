@@ -1,3 +1,5 @@
+#main.py
+
 import streamlit as st
 from graph_builder import build_graph
 from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader, UnstructuredMarkdownLoader
