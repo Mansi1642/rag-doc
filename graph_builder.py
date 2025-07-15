@@ -27,7 +27,7 @@ class GraphState(dict):
 def retrieve_chunks(state: GraphState):
     query = state.get("input", "")
     retriever = vectordb.as_retriever()
-    docs = retriever.get_relevant_documents(query)
+    docs = retriever.invoke(query)
     return {"input": query, "documents": docs}
 
 # Node 2: Generate response from docs
@@ -40,7 +40,7 @@ def generate_answer(state: GraphState):
         SystemMessage(content="You are a helpful assistant that answers questions based on the provided documents."),
         HumanMessage(content=f"Documents:\n{content}\n\nQuestion:\n{query}")
     ]
-    response = llm(messages).content
+    response = llm.invoke(messages).content
     cleaned = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
     return {"answer": cleaned}
 

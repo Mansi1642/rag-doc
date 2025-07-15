@@ -1,15 +1,12 @@
-import streamlit as st
+import gradio as gr
 from graph_builder import build_graph
 from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader, UnstructuredMarkdownLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import Chroma
-import tempfile
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
 import os
 
-st.set_page_config(page_title="LangGraph RAG Agent")
-st.title("📄🧠 LangGraph RAG with File Upload")
-
+# File loader mapping
 LOADER_MAP = {
     ".pdf": PyPDFLoader,
     ".txt": TextLoader,
@@ -17,42 +14,58 @@ LOADER_MAP = {
     ".md": UnstructuredMarkdownLoader,
 }
 
-def load_document(file_path, suffix):
-    loader_cls = LOADER_MAP.get(suffix.lower())
-    if loader_cls:
-        return loader_cls(file_path).load()
-    else:
-        st.error(f"Unsupported file type: {suffix}")
-        return []
-
-uploaded_file = st.file_uploader("Upload a document", type=["pdf", "txt", "docx", "md"])
-
-if uploaded_file:
-    suffix = os.path.splitext(uploaded_file.name)[1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        tmp_path = tmp_file.name
-
-    st.success(f"Uploaded: {uploaded_file.name}")
-    docs = load_document(tmp_path, suffix)
-
-    if docs:
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        chunks = splitter.split_documents(docs)
-
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vectordb = Chroma.from_documents(chunks, embeddings, persist_directory="db")
-        vectordb.persist()
-        os.remove(tmp_path)
-        st.success(f"Stored {len(chunks)} chunks in vector DB.")
-    else:
-        st.error("Failed to load document.")
-
 graph = build_graph()
-user_input = st.text_input("Ask a question about the uploaded document:")
 
-if user_input:
-    with st.spinner("Thinking..."):
-        result = graph.invoke({"input": user_input})
-        st.write("### Answer:")
-        st.markdown(result["answer"])
+def process_file_and_store(file_obj):
+    suffix = os.path.splitext(file_obj.name)[1]
+    loader_cls = LOADER_MAP.get(suffix.lower())
+
+    if not loader_cls:
+        return f"Unsupported file type: {suffix}", None
+
+    tmp_path = file_obj.name
+
+    docs = loader_cls(tmp_path).load()
+    if not docs:
+        return "Failed to load document.", None
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    chunks = splitter.split_documents(docs)
+
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    vectordb = Chroma.from_documents(chunks, embeddings, persist_directory="db")
+    vectordb.persist()
+
+    return f"Stored {len(chunks)} chunks in vector DB.", True
+
+def chat(query, history):
+    if not query.strip():
+        history.append({"role": "assistant", "content": "Please ask a question."})
+        return history, history
+
+    result = graph.invoke({"input": query})
+    answer = result["answer"]
+
+    history.append({"role": "user", "content": query})
+    history.append({"role": "assistant", "content": answer})
+    return history, history
+
+
+with gr.Blocks() as demo:
+    gr.Markdown("## 📄🧠 LangGraph RAG Conversational Chat")
+
+    file_upload = gr.File(label="Upload a document", file_types=[".pdf", ".txt", ".docx", ".md"])
+    upload_status = gr.Textbox(label="Upload Status", interactive=False)
+
+    chatbot = gr.Chatbot(label="Conversation", type="messages")
+    msg = gr.Textbox(label="Ask a question about the uploaded document:")
+
+    state = gr.State([])
+
+    file_upload.upload(process_file_and_store, inputs=[file_upload], outputs=[upload_status])
+    msg.submit(chat, [msg, state], [chatbot, state]).then(
+        lambda: "", None, [msg]
+    )
+
+if __name__ == "__main__":
+    demo.launch()
