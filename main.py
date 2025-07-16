@@ -1,10 +1,14 @@
 import gradio as gr
 from graph_builder import build_graph
-from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader, UnstructuredMarkdownLoader
+from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader, UnstructuredMarkdownLoader, UnstructuredImageLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-import os
+import os, json
+
+os.environ["TESSDATA_PREFIX"] = r"C:\Users\mansi.patil\AppData\Local\Programs\Tesseract-OCR\tessdata"
+os.environ["PATH"] += os.pathsep + r"C:\Users\mansi.patil\AppData\Local\Programs\Tesseract-OCR"
+
 
 # File loader mapping
 LOADER_MAP = {
@@ -12,9 +16,24 @@ LOADER_MAP = {
     ".txt": TextLoader,
     ".docx": UnstructuredWordDocumentLoader,
     ".md": UnstructuredMarkdownLoader,
+    ".png": UnstructuredImageLoader,
+    ".jpg": UnstructuredImageLoader,
+    ".jpeg": UnstructuredImageLoader,
 }
 
 graph = build_graph()
+
+HISTORY_FILE = "chat_history.json"
+
+def load_chat_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_chat_history(history):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
 
 def process_file_and_store(file_obj):
     suffix = os.path.splitext(file_obj.name)[1]
@@ -41,6 +60,7 @@ def process_file_and_store(file_obj):
 def chat(query, history):
     if not query.strip():
         history.append({"role": "assistant", "content": "Please ask a question."})
+        save_chat_history(history)
         return history, history
 
     result = graph.invoke({"input": query})
@@ -48,13 +68,14 @@ def chat(query, history):
 
     history.append({"role": "user", "content": query})
     history.append({"role": "assistant", "content": answer})
+    save_chat_history(history)
     return history, history
 
 
 with gr.Blocks() as demo:
     gr.Markdown("## 📄🧠 LangGraph RAG Conversational Chat")
 
-    file_upload = gr.File(label="Upload a document", file_types=[".pdf", ".txt", ".docx", ".md"])
+    file_upload = gr.File(label="Upload a document", file_types=[".pdf", ".txt", ".docx", ".md", ".png", ".jpg", ".jpeg"])
     upload_status = gr.Textbox(label="Upload Status", interactive=False)
 
     chatbot = gr.Chatbot(label="Conversation", type="messages")
