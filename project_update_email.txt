@@ -1,0 +1,8 @@
+Subject: Project Update – RAG Implementation
+
+Hi Team,
+
+The RAG implementation is complete. The next step is to deploy the model to production.
+
+Regards,
+Mansi
