@@ -164,18 +164,18 @@ class GraphState(dict):
 
 # Tool 1: Detect Document Type
 def detect_document_type(query: str) -> str:
-    # ✅ Read stored file name (for title queries)
+    # Read stored file name (for title queries)
     file_name = "unknown"
     if os.path.exists("current_file.txt"):
         with open("current_file.txt", "r", encoding="utf-8") as f:
             file_name = f.read().strip()
 
-    # ✅ Retrieve sample document content
+    # Retrieve sample document content
     retriever = vectordb.as_retriever(search_kwargs={"k": 3})
     docs = retriever.invoke("document content")
     sample_text = "\n".join([d.page_content for d in docs]) if docs else "No document content found."
 
-    # ✅ Ask LLM to classify based on real content
+    # Ask LLM to classify based on real content
     prompt = (
         f"You are a document classification expert.\n\n"
         f"Document File Name: {file_name}\n"
@@ -226,13 +226,13 @@ def agent_node(state: GraphState):
         )
     ]
 
-    # ✅ Let LangGraph handle tool reasoning automatically (no forced prompt)
+    # Let LangGraph handle tool reasoning automatically (no forced prompt)
     agent = create_react_agent(llm, tools)
 
-    # ✅ Directly pass the user query as a normal conversation
+    # Directly pass the user query as a normal conversation
     result = agent.invoke({"messages": [HumanMessage(content=query)]})
 
-    # ✅ Clean output
+    # Clean output
     final_answer = result["messages"][-1].content
     cleaned = re.sub(r"<think>.*?</think>", "", final_answer, flags=re.DOTALL).strip()
 
