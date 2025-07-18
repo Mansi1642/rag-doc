@@ -56,7 +56,7 @@ def process_file_and_store(file_obj):
         except PermissionError:
             pass
 
-    Chroma.from_documents(chunks, embeddings, persist_directory="db", collection_name="rag_collection")
+    Chroma.from_documents(chunks, embeddings, persist_directory="db")
 
     with open("current_file.txt", "w", encoding="utf-8") as f:
         f.write(os.path.basename(file_obj.name))
