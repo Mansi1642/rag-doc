@@ -27,6 +27,10 @@ def retrieve_chunks(state: GraphState):
     vectordb = Chroma(persist_directory="db", embedding_function=embeddings)
     retriever = vectordb.as_retriever(search_kwargs={"k": 5})
     docs = retriever.invoke(query)
+    print(f"[DEBUG] Retrieved {len(docs)} documents for query: '{query}'")
+    for i, doc in enumerate(docs):
+        print(f"[Doc {i+1}] {doc.page_content[:200]}...\n")
+
     return {"input": query, "documents": docs}
 
 def generate_answer(state: GraphState):

@@ -8,7 +8,7 @@ from langchain_community.document_loaders import (
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-import shutil
+import hashlib
 import os
 
 # OCR settings (if needed for images)
@@ -29,6 +29,49 @@ LOADER_MAP = {
 # Build RAG Agent graph (workflow)
 graph = build_graph()
 
+# def process_file_and_store(file_obj):
+#     suffix = os.path.splitext(file_obj.name)[1]
+#     loader_cls = LOADER_MAP.get(suffix.lower())
+
+#     if not loader_cls:
+#         return f"Unsupported file type: {suffix}", None
+
+#     tmp_path = file_obj.name
+#     docs = loader_cls(tmp_path).load()
+
+#     if not docs:
+#         return "Failed to load document or document is empty.", None
+
+#     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+#     chunks = splitter.split_documents(docs)
+
+#     if not chunks:
+#         return "No readable text found in the document.", None
+
+#     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+#     if os.path.exists("db"):
+#         try:
+#             shutil.rmtree("db")
+#         except PermissionError:
+#             pass
+
+#     Chroma.from_documents(chunks, embeddings, persist_directory="db")
+
+#     with open("current_file.txt", "w", encoding="utf-8") as f:
+#         f.write(os.path.basename(file_obj.name))
+
+#     print(f"Stored {len(chunks)} chunks for '{os.path.basename(file_obj.name)}'")
+#     return f"Stored {len(chunks)} chunks for '{os.path.basename(file_obj.name)}'.", True
+
+def get_doc_hash(file_path):
+    """Generate a unique hash for the document to avoid duplicate uploads."""
+    hasher = hashlib.md5()
+    with open(file_path, "rb") as f:
+        buf = f.read()
+        hasher.update(buf)
+    return hasher.hexdigest()
+
 def process_file_and_store(file_obj):
     suffix = os.path.splitext(file_obj.name)[1]
     loader_cls = LOADER_MAP.get(suffix.lower())
@@ -37,8 +80,20 @@ def process_file_and_store(file_obj):
         return f"Unsupported file type: {suffix}", None
 
     tmp_path = file_obj.name
-    docs = loader_cls(tmp_path).load()
+    file_hash = get_doc_hash(tmp_path)
 
+    # Check if already uploaded
+    if os.path.exists("uploaded_docs.txt"):
+        with open("uploaded_docs.txt", "r", encoding="utf-8") as f:
+            uploaded_hashes = {line.strip() for line in f.readlines()}
+
+        if file_hash in uploaded_hashes:
+            return f"'{os.path.basename(file_obj.name)}' is already uploaded. Skipping re-upload.", True
+    else:
+        uploaded_hashes = set()
+
+    # Process new document
+    docs = loader_cls(tmp_path).load()
     if not docs:
         return "Failed to load document or document is empty.", None
 
@@ -50,16 +105,17 @@ def process_file_and_store(file_obj):
 
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-    if os.path.exists("db"):
-        try:
-            shutil.rmtree("db")
-        except PermissionError:
-            pass
+    if os.path.exists("db") and os.listdir("db"):
+        vectordb = Chroma(persist_directory="db", embedding_function=embeddings)
+        vectordb.add_documents(chunks)
+        print("Total documents stored (after adding):", vectordb._collection.count())
+    else:
+        vectordb = Chroma.from_documents(chunks, embeddings, persist_directory="db")
+        print("Total documents stored (new DB):", vectordb._collection.count())
 
-    Chroma.from_documents(chunks, embeddings, persist_directory="db")
-
-    with open("current_file.txt", "w", encoding="utf-8") as f:
-        f.write(os.path.basename(file_obj.name))
+    # Save hash to avoid future duplicates
+    with open("uploaded_docs.txt", "a", encoding="utf-8") as f:
+        f.write(file_hash + "\n")
 
     print(f"Stored {len(chunks)} chunks for '{os.path.basename(file_obj.name)}'")
     return f"Stored {len(chunks)} chunks for '{os.path.basename(file_obj.name)}'.", True
