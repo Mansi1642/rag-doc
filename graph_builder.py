@@ -6,57 +6,70 @@ from langchain.schema import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 import os
 import re
-
-# Load environment variables
+ 
+# Load env
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-# LangGraph state definition
+ 
+ 
 class GraphState(dict):
     input: str
     documents: list
     answer: str
-
+    selected_doc: str
+    filter_all: bool
+ 
+ 
 def retrieve_chunks(state: GraphState):
     query = state.get("input", "")
-
+    selected_doc = state.get("selected_doc", None)
+ 
     if not os.path.exists("db") or not os.listdir("db"):
         return {"input": query, "documents": []}
-
+ 
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     vectordb = Chroma(persist_directory="db", embedding_function=embeddings)
-    retriever = vectordb.as_retriever(search_kwargs={"k": 5})
+ 
+    search_kwargs = {"k": 5}
+    if selected_doc:
+        search_kwargs["filter"] = {"doc_id": selected_doc}
+ 
+    retriever = vectordb.as_retriever(search_kwargs=search_kwargs)
     docs = retriever.invoke(query)
-    print(f"[DEBUG] Retrieved {len(docs)} documents for query: '{query}'")
-    for i, doc in enumerate(docs):
-        print(f"[Doc {i+1}] {doc.page_content[:200]}...\n")
-
+ 
+    print(f"[DEBUG] Retrieved {len(docs)} documents for query: '{query}' using doc_id filter: {selected_doc}")
     return {"input": query, "documents": docs}
-
+ 
+ 
 def generate_answer(state: GraphState):
     query = state["input"]
     docs = state["documents"]
-    content = "\n\n".join([doc.page_content for doc in docs]) if docs else ""
-
+    # content = "\n\n".join([doc.page_content for doc in docs]) if docs else ""
+    content = "\n\n".join([
+    f"Title: {doc.metadata.get('title', 'N/A')}\n"
+    f"Type: {doc.metadata.get('file_type', 'Unknown')}\n"
+    f"Content: {doc.page_content}"
+    for doc in docs
+])
+ 
     llm = ChatGroq(model="llama3-70b-8192", api_key=GROQ_API_KEY)
-
+ 
     if not content:
         return {"answer": "I cannot find this information in the document."}
-
+ 
     messages = [
         SystemMessage(content=(
-            "You are a strict RAG assistant. "
-            "ONLY answer using the provided documents. "
-            "If the answer is not in the documents, say: "
-            "'I cannot find this information in the document.'"
+            "You are a strict RAG assistant. ONLY answer using the provided documents. "
+            "If the answer is not in the documents, say: 'I cannot find this information in the document.'"
         )),
         HumanMessage(content=f"Documents:\n{content}\n\nQuestion:\n{query}")
     ]
-
+ 
     response = llm.invoke(messages).content
     cleaned = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
     return {"answer": cleaned}
-
+ 
+ 
 def build_graph():
     workflow = StateGraph(GraphState)
     workflow.add_node("Retrieve", retrieve_chunks)
